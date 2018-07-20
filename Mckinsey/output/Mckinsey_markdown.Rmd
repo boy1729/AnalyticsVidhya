@@ -1,0 +1,129 @@
+---
+title: "McKinsey"
+author: "Vikas_Jha(vikasjhanitk@gmail.com)"
+date: "July 20, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+# Introduction
+This Exploratory Data Analysis on dataset of Mckinsey Hackathon 'https://datahack.analyticsvidhya.com/contest/mckinsey-analytics-online-hackathon-4/'. The hackathon's goal is to solve the issues for an Insurance company, by developing a model, in order to: 1. Predect the propensity to pay renewal premium. 2. Build an incentive plan for its agents to maximise the net revenue (i.e. renewals - incentives given to collect the renewals) collected from the policies post their issuance.
+
+Information available is  about past transactions from the policy holders along with their demographics. The client has provided aggregated historical transactional data like number of premiums delayed by 3/ 6/ 12 months across all the products, number of premiums paid, customer sourcing channel and customer demographics like age, monthly income and area type.
+Further, following extra data has been made available:
+1. Expected effort in hours put in by an agent for incentives provided.
+2. Expected increase in chances of renewal, given the effort from the agent.
+
+# Evaluation Criteria:
+There are two criteria:
+(a) The base probability of receiving a premium on a policy without considering any incentive, to be evaluated using AUC ROC score
+(b) The monthly incentives you will provide on each policy to maximize the net revenue, scored as:
+
+![](D:/hackathons/mckinsey/Mckinsey_Image.jpg)
+
+-pbenchmark is the renewal probability predicted using a benchmark model by the insurance company.
+-???p (% Improvement in renewal probability*pbenchmark) is the improvement in renewal probability calculated from the agent efforts in hours.
+-'Premium on policy' is the premium paid by the policy holder for the policy in consideration.
+-'Incentive on policy' is the incentive given to the agent for increasing the chance of renewal (estimated by the participant) for each policy
+
+
+The following curve provide the relationship between extra effort in hours invested by the agent with Incentive to the agent and % improvement in renewal probability vs agent effort in hours:
+1. Relationship b/w Extra efforts in hours invested by an agent and Incentive to agent. After a point more incentives does not convert to extra efforts.
+![](D:/hackathons/mckinsey/agent_incentive.png)
+
+Equation for the effort-incentives curve: Y = 10*(1-exp(-X/400))
+
+
+2. Relationship between % improvement in renewal probability vs Agent effort in hours. The renewal probability cannot be improved beyond a certain level even with more efforts.
+![](D:/hackathons/mckinsey/agent_effort_renewalProb.png)
+
+Equation for the % improvement in renewal prob vs effort curve: Y = 20*(1-exp(-X/5)
+
+Combined Score = w1*AUC-ROC value + w2*(net revenue collected from all policies)*lambda
+  where -
+    w1 = 0.7
+    w2 = 0.3
+    lambda is a normalizing factor
+
+##-------Setting up working directory and list files---------------
+```{r}
+setwd("D:/hackathons/mckinsey/")
+all_files <- list.files("../mckinsey/input/")
+```
+
+##-------Loading packages------------------------------------------
+```{r}
+# general data manipulation
+library(data.table) ## data manipulation
+library(dplyr) ## data manipulation
+
+# general visualisation
+library(ggplot2) # visualisation
+library(scales) # visualisation
+library(scales) # visualisation
+library(corrplot) # visualisation
+
+```
+
+##-------Load data---------------------------------------------------
+```{r}
+
+d_train <- fread("D:/hackathons/mckinsey/input/train.csv", stringsAsFactors = F, na.strings = c(""," ", "NA"))
+d_test <- fread("D:/hackathons/mckinsey/input/test.csv", stringsAsFactors = F, na.strings = c("", " ", "NA"))
+sample_sub <- fread("D:/hackathons/mckinsey/input/sample.csv", stringsAsFactors = F)
+
+```
+
+##-------Changing file names according to R----------------------------
+```{r}
+names(d_train) <- sub("-", "_", names(d_train))
+names(d_test) <- sub("-", "_", names(d_test))
+```
+
+
+##-------Overview: File structure and content-------------------------
+```{r}
+summary(d_train)
+glimpse(d_train)
+d_train %>% nrow()
+d_train %>% distinct(id) %>% nrow()
+
+missing_val <- data.frame(variable = names(d_test), train_val = 0, train_per = 0, test_val = 0, train_per = 0)
+
+missing_val$train_val <- apply(d_train[,-13], 2, FUN = function(x) {sum(is.na(x))})
+missing_val$train_per <- missing_val$train_val/nrow(d_train)
+
+missing_val$test_val <- apply(d_test, 2, FUN = function(x) {sum(is.na(x))})
+missing_val$test_per <- missing_val$test_val/nrow(d_train)
+
+
+summary(d_test)
+glimpse(d_test)d_train %>% nrow()
+d_test %>% distinct(id) %>% nrow()
+
+setdiff(names(d_train), names(d_test))
+```
+
+The missing values in train and test datasets respectively, belong to same rows for the 3 columns related to counts being late by months.
+And considering that 60% of cases in these missing rows have non-renewal, these missing values can seem to be those cases where delay has been more than max, i.e. 12 months
+
+##-------Individual feature visualisations------------------------------
+
+Here we have look at distributions of individual features before using them for feature generation and model development.
+
+###-------Train----------------------------------------------------------
+```{r}
+
+p1 <- d_train %>% group_by(Count_3_6_months_late) %>% 
+  summarise(renewed = sum(renewal), total = n()) %>% 
+  mutate(Count_3_6_months_late = as.factor(Count_3_6_months_late), percent_renew = 100*renewed/total) %>%
+  melt(value.name = "Count_3_6_months_late") %>%
+  ggplot(aes(Count_3_6_months_late, value)) + geom_bar(aes(fill = variable),stat = "identity") + theme(legend.position = "none") +
+  labs(x = "Count_3_6_months_late", y = "Total numbers")
+```
+
